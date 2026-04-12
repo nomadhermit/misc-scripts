@@ -1,4 +1,3 @@
 # misc-scripts
 
-Beachcams - get list of live beachcams from Portugal and captures some frames to a folder or video clips
-
+Beachcams - get list of live Portugal beachcams and captures some frames to a folder 
