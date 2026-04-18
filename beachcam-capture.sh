@@ -9,6 +9,7 @@ PLAYLIST="playlist.m3u"
 URL="https://raw.githubusercontent.com/LITUATUI/M3UPT/refs/heads/main/M3U/M3UPT.m3u"
 MAX_PARALLEL=3
 MAX_AGE=$((24 * 60 * 60))   # 24 hours in seconds
+CLIP_LENGTH=20  #seconds of livestream to record
 
 # ----------------------------- Functions -------------------------------------
 
