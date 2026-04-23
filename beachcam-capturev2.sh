@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Beachcam Frame/Video Capture Script - Parameterized Version
+# Beachcam Frame/Video Capture Script - With Name Filter (-f)
 # =============================================================================
 
 set -euo pipefail
@@ -11,28 +11,30 @@ MAX_PARALLEL=3
 MAX_AGE=$((24 * 60 * 60))   # 24 hours in seconds
 
 # ----------------------------- Defaults -------------------------------------
-MODE="frames"          # "frames" or "video"
+MODE="frames"
 FRAME_COUNT=4
 VIDEO_SECONDS=20
-FPS=1/8                # Default for frame mode
+FILTER=""                  # New: name filter
+FPS=1/8
 
 # ----------------------------- Argument Parsing -----------------------------
 usage() {
-    echo "Usage: $0 [-v <seconds>] [-i <frames>]"
-    echo "  -v <seconds>   Capture video for specified seconds (default: 20 if -v used without value)"
-    echo "  -i <frames>    Capture specified number of frames (default: 4)"
-    echo "  No arguments   Uses default frame capture (4 frames)"
+    echo "Usage: $0 [-v <seconds>] [-i <frames>] [-f <filter>]"
+    echo "  -v <seconds>   Capture video for specified seconds"
+    echo "  -i <frames>    Capture specified number of frames"
+    echo "  -f <text>      Filter beachcams by name (e.g. -f Barra)"
+    echo "  No arguments   Default: 4 frames, all Beachcams"
     exit 1
 }
 
-while getopts ":v:i:h" opt; do
+while getopts ":v:i:f:h" opt; do
     case $opt in
         v)
             MODE="video"
             if [[ -n "$OPTARG" && "$OPTARG" =~ ^[0-9]+$ ]]; then
                 VIDEO_SECONDS="$OPTARG"
             else
-                VIDEO_SECONDS=20  # default if -v given without number
+                VIDEO_SECONDS=20
             fi
             ;;
         i)
@@ -43,6 +45,9 @@ while getopts ":v:i:h" opt; do
                 FRAME_COUNT=4
             fi
             ;;
+        f)
+            FILTER="$OPTARG"
+            ;;
         h)
             usage
             ;;
@@ -51,7 +56,7 @@ while getopts ":v:i:h" opt; do
             usage
             ;;
         :)
-            # -v or -i without value is allowed (uses defaults)
+            # Handle -v / -i without value
             if [[ "$OPTARG" == "v" ]]; then
                 MODE="video"
                 VIDEO_SECONDS=20
@@ -74,7 +79,7 @@ error() {
 }
 
 # ----------------------------- Main Logic ------------------------------------
-log "Starting beachcam capture script (Mode: $MODE)..."
+log "Starting beachcam capture script (Mode: $MODE${FILTER:+ | Filter: \"$FILTER\"})..."
 
 # Check if playlist needs refreshing
 if [[ ! -f "$PLAYLIST" ]] || \
@@ -89,15 +94,14 @@ else
     log "Playlist is up to date (less than 24h old)."
 fi
 
-# Verify playlist exists and is not empty
 [[ -s "$PLAYLIST" ]] || error "Playlist file is empty or missing: $PLAYLIST"
-
-# ----------------------------- Extract & Process Beachcams -------------------
-log "Extracting and processing Beachcam streams..."
 
 mkdir -p captures
 
-# Robust M3U parsing for group-title="Beachcam"
+# ----------------------------- Extract & Process Beachcams -------------------
+log "Extracting Beachcam streams${FILTER:+ (filtered by \"$FILTER\")}..."
+
+# Robust M3U parsing + optional filter
 grep -A1 'group-title="Beachcam"' "$PLAYLIST" | \
 awk '
     /^#EXTINF/ {
@@ -110,6 +114,13 @@ awk '
         metadata = ""
     }
 ' | \
+{
+    if [[ -n "$FILTER" ]]; then
+        grep -i "$FILTER"   # Case-insensitive filter on the metadata|url line
+    else
+        cat
+    fi
+} | \
 xargs -I {} -P "$MAX_PARALLEL" -r bash -c '
     line="{}"
     IFS="|" read -r metadata stream_url <<< "$line"
@@ -124,30 +135,30 @@ xargs -I {} -P "$MAX_PARALLEL" -r bash -c '
 
     if [[ "'"$MODE"'" == "video" ]]; then
         output_file="captures/${prefix}-${TIMESTAMP}.mp4"
-        echo "Capturing ${'"'"$VIDEO_SECONDS"'"'} seconds of video for $prefix → $output_file"
+        echo "Capturing ${'"'"$VIDEO_SECONDS"'"'} seconds of video → $output_file"
         
         if ffmpeg -nostdin -y -i "$stream_url" \
                   -t '"$VIDEO_SECONDS"' \
                   -c copy \
                   -loglevel error \
                   "$output_file"; then
-            echo "✓ Successfully captured video for $prefix"
+            echo "✓ Success: $prefix"
         else
-            echo "✗ Failed to capture video for $prefix (stream may be offline)"
+            echo "✗ Failed: $prefix"
         fi
     else
-        # Frame capture mode
+        # Frame mode
         output_pattern="captures/${prefix}-${TIMESTAMP}_%03d.jpg"
-        echo "Capturing ${'"'"$FRAME_COUNT"'"'} frames for $prefix"
+        echo "Capturing ${'"'"$FRAME_COUNT"'"'} frames"
         
         if ffmpeg -nostdin -y -i "$stream_url" \
                   -frames:v '"$FRAME_COUNT"' \
                   -vf "fps='"$FPS"'" \
                   -loglevel error \
                   "$output_pattern"; then
-            echo "✓ Successfully captured $FRAME_COUNT frames for $prefix"
+            echo "✓ Success: $prefix ($FRAME_COUNT frames)"
         else
-            echo "✗ Failed to capture frames for $prefix (stream may be offline)"
+            echo "✗ Failed: $prefix"
         fi
     fi
 '
