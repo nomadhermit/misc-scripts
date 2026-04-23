@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Beachcam Frame/Video Capture Script - OPTIMIZED + LIVE PROGRESS BAR
+# Beachcam Frame/Video Capture Script - FIXED (HLS + Headers + Variables)
 # =============================================================================
 
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 PLAYLIST="playlist.m3u"
 URL="https://raw.githubusercontent.com/LITUATUI/M3UPT/refs/heads/main/M3U/M3UPT.m3u"
 MAX_PARALLEL=3
-MAX_AGE=$((24 * 60 * 60))   # 24 hours in seconds
+MAX_AGE=$((24 * 60 * 60))
 
 # ----------------------------- Defaults -------------------------------------
 MODE="frames"
@@ -29,10 +29,9 @@ Options:
   -h             Show this help
 
 Examples:
-  $0                    # Default: 4 frames from all Beachcams
-  $0 -i 10              # 10 frames from all
-  $0 -v 30 -f Barra     # 30s video, filtered by "Barra"
-  $0 -f Rio             # 4 frames, filtered by "Rio"
+  $0                    # 4 frames from all Beachcams
+  $0 -i 10 -f Barra     # 10 frames, filtered
+  $0 -v 30              # 30 seconds video from all
 EOF
     exit 0
 }
@@ -54,11 +53,14 @@ while getopts ":v:i:f:h" opt; do
             usage
             ;;
         \?|:)
-            echo "Invalid option or missing argument" >&2
+            echo "Invalid option" >&2
             usage
             ;;
     esac
 done
+
+# Export variables so they are visible inside parallel subshells
+export MODE FRAME_COUNT VIDEO_SECONDS FPS
 
 # ----------------------------- Functions -------------------------------------
 log() {
@@ -70,7 +72,6 @@ error() {
     exit 1
 }
 
-# Live progress bar (updates on same line)
 show_progress() {
     local completed=$1
     local total=$2
@@ -83,61 +84,87 @@ show_progress() {
     printf "] %d/%d (%d%%)" "$completed" "$total" "$percent"
 }
 
-# Per-stream processing (called in parallel)
+# Per-stream processing (HLS-optimized with headers + reconnect)
 process_stream() {
     local line="$1"
-    local PROGRESS_FILE="$2"
-    local TOTAL="$3"
+    local prog_file="$2"
+    local total="$3"
 
     local metadata stream_url
     IFS="|" read -r metadata stream_url <<< "$line"
 
-    # Clean filename prefix
     local prefix
     prefix=$(echo "$metadata" | sed -E 's/.*,//; s/[^a-zA-Z0-9_-]/_/g; s/__+/_/g; s/^_|_$//g')
     [[ -z "$prefix" ]] && prefix="beachcam_unknown"
 
-    echo -e "\nProcessing: $prefix"
+    echo -e "\n[$(date '+%H:%M:%S')] Processing: $prefix"
 
     local TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+    local success=0
+
+    # Common HLS options (critical for iol.pt beachcams)
+    local HLS_OPTS=(
+        -reconnect 1
+        -reconnect_streamed 1
+        -reconnect_delay_max 5
+        -headers $'Referer: https://www.iol.pt/\r\n'
+        -user_agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+    )
 
     if [[ "$MODE" == "video" ]]; then
         local output_file="captures/${prefix}-${TIMESTAMP}.mp4"
         echo "→ Capturing ${VIDEO_SECONDS}s video → $output_file"
 
-        if ffmpeg -nostdin -y -i "$stream_url" \
+        if ffmpeg -nostdin -y "${HLS_OPTS[@]}" \
+                  -i "$stream_url" \
                   -t "$VIDEO_SECONDS" \
                   -c copy \
                   -loglevel error \
-                  "$output_file"; then
-            echo "✓ Success: $prefix (video)"
+                  "$output_file" 2>/dev/null; then
+
+            if [[ -s "$output_file" ]]; then
+                echo "✓ Success: $prefix (video, $(du -h "$output_file" | cut -f1))"
+                success=1
+            else
+                echo "✗ Empty file: $prefix"
+            fi
         else
-            echo "✗ Failed: $prefix"
+            echo "✗ Failed: $prefix (check stream)"
         fi
+
     else
+        # Frame mode
         local output_pattern="captures/${prefix}-${TIMESTAMP}_%03d.jpg"
         echo "→ Capturing ${FRAME_COUNT} frames"
 
-        if ffmpeg -nostdin -y -i "$stream_url" \
+        if ffmpeg -nostdin -y "${HLS_OPTS[@]}" \
+                  -i "$stream_url" \
                   -frames:v "$FRAME_COUNT" \
                   -vf "fps=${FPS}" \
                   -loglevel error \
-                  "$output_pattern"; then
-            echo "✓ Success: $prefix (${FRAME_COUNT} frames)"
+                  "$output_pattern" 2>/dev/null; then
+
+            local count=$(ls "${output_pattern%_*}"_* 2>/dev/null | wc -l || echo 0)
+            if [[ $count -gt 0 ]]; then
+                echo "✓ Success: $prefix ($count frames)"
+                success=1
+            else
+                echo "✗ No frames captured: $prefix"
+            fi
         else
-            echo "✗ Failed: $prefix"
+            echo "✗ Failed: $prefix (check stream)"
         fi
     fi
 
-    # Atomic progress update + redraw bar
+    # Atomic progress update
     local current
-    current=$(flock -x "$PROGRESS_FILE" bash -c '
+    current=$(flock -x "$prog_file" bash -c '
         curr=$(cat "$1" 2>/dev/null || echo 0)
         echo $((curr + 1)) > "$1"
         echo $((curr + 1))
-    ' _ "$PROGRESS_FILE")
+    ' _ "$prog_file")
 
-    show_progress "$current" "$TOTAL"
+    show_progress "$current" "$total"
 }
 export -f process_stream show_progress
 
@@ -148,7 +175,7 @@ log "Starting beachcam capture script (Mode: $MODE${FILTER:+ | Filter: \"$FILTER
 if [[ ! -f "$PLAYLIST" ]] || \
    [[ $(($(date +%s) - $(stat -c %Y "$PLAYLIST" 2>/dev/null || echo 0))) -gt $MAX_AGE ]]; then
     log "Downloading fresh playlist..."
-    if ! curl -L -f -s --connect-timeout 10 --max-time 30 "$URL" -o "$PLAYLIST"; then
+    if ! curl -L -f -s --connect-timeout 10 --max-time 60 "$URL" -o "$PLAYLIST"; then
         error "Failed to download playlist from $URL"
     fi
     log "Playlist downloaded successfully."
@@ -160,9 +187,7 @@ fi
 
 mkdir -p captures
 
-# ----------------------------- Extract streams -------------------
-log "Extracting Beachcam streams${FILTER:+ (filtered by \"$FILTER\")}..."
-
+# Extract streams
 mapfile -t STREAM_LINES < <(
     grep -A1 'group-title="Beachcam"' "$PLAYLIST" | \
     awk '
@@ -173,13 +198,7 @@ mapfile -t STREAM_LINES < <(
             metadata = ""
         }
     ' | \
-    {
-        if [[ -n "$FILTER" ]]; then
-            grep -i "$FILTER"
-        else
-            cat
-        fi
-    }
+    { [[ -n "$FILTER" ]] && grep -i "$FILTER" || cat; }
 )
 
 TOTAL=${#STREAM_LINES[@]}
@@ -189,18 +208,18 @@ if [[ $TOTAL -eq 0 ]]; then
     exit 0
 fi
 
-log "Found $TOTAL beachcam(s) to process. Starting parallel capture..."
+log "Found $TOTAL beachcam(s) → starting capture..."
 
 # Progress tracking
 PROGRESS_FILE=$(mktemp /tmp/beachcam_progress_$$.XXXXXX)
 echo 0 > "$PROGRESS_FILE"
 trap 'rm -f "$PROGRESS_FILE" 2>/dev/null || true' EXIT
 
-# Process in parallel with live progress bar
+# Run in parallel
 printf '%s\n' "${STREAM_LINES[@]}" | \
 xargs -I {} -P "$MAX_PARALLEL" -r bash -c 'process_stream "$1" "$2" "$3"' _ {} "$PROGRESS_FILE" "$TOTAL"
 
-# Final progress (100%)
+# Final progress + cleanup
 show_progress "$TOTAL" "$TOTAL"
 echo -e "\n"
 
