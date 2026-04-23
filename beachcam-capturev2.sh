@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Beachcam Frame/Video Capture Script - OPTIMIZED
+# Beachcam Frame/Video Capture Script - OPTIMIZED + LIVE PROGRESS BAR
 # =============================================================================
 
 set -euo pipefail
@@ -29,7 +29,7 @@ Options:
   -h             Show this help
 
 Examples:
-  $0                    # 4 frames from all Beachcams
+  $0                    # Default: 4 frames from all Beachcams
   $0 -i 10              # 10 frames from all
   $0 -v 30 -f Barra     # 30s video, filtered by "Barra"
   $0 -f Rio             # 4 frames, filtered by "Rio"
@@ -70,9 +70,25 @@ error() {
     exit 1
 }
 
-# Main processing function (exported for xargs subshells)
+# Live progress bar (updates on same line)
+show_progress() {
+    local completed=$1
+    local total=$2
+    local percent=$(( completed * 100 / total ))
+    local width=50
+    local filled=$(( percent * width / 100 ))
+    printf "\rProgress: ["
+    printf "%${filled}s" | tr ' ' '█'
+    printf "%$((width - filled))s" | tr ' ' '░'
+    printf "] %d/%d (%d%%)" "$completed" "$total" "$percent"
+}
+
+# Per-stream processing (called in parallel)
 process_stream() {
     local line="$1"
+    local PROGRESS_FILE="$2"
+    local TOTAL="$3"
+
     local metadata stream_url
     IFS="|" read -r metadata stream_url <<< "$line"
 
@@ -81,7 +97,7 @@ process_stream() {
     prefix=$(echo "$metadata" | sed -E 's/.*,//; s/[^a-zA-Z0-9_-]/_/g; s/__+/_/g; s/^_|_$//g')
     [[ -z "$prefix" ]] && prefix="beachcam_unknown"
 
-    echo "Processing: $prefix"
+    echo -e "\nProcessing: $prefix"
 
     local TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 
@@ -96,10 +112,9 @@ process_stream() {
                   "$output_file"; then
             echo "✓ Success: $prefix (video)"
         else
-            echo "✗ Failed: $prefix (video)"
+            echo "✗ Failed: $prefix"
         fi
     else
-        # Frame capture mode
         local output_pattern="captures/${prefix}-${TIMESTAMP}_%03d.jpg"
         echo "→ Capturing ${FRAME_COUNT} frames"
 
@@ -110,11 +125,21 @@ process_stream() {
                   "$output_pattern"; then
             echo "✓ Success: $prefix (${FRAME_COUNT} frames)"
         else
-            echo "✗ Failed: $prefix (frames)"
+            echo "✗ Failed: $prefix"
         fi
     fi
+
+    # Atomic progress update + redraw bar
+    local current
+    current=$(flock -x "$PROGRESS_FILE" bash -c '
+        curr=$(cat "$1" 2>/dev/null || echo 0)
+        echo $((curr + 1)) > "$1"
+        echo $((curr + 1))
+    ' _ "$PROGRESS_FILE")
+
+    show_progress "$current" "$TOTAL"
 }
-export -f process_stream
+export -f process_stream show_progress
 
 # ----------------------------- Main Logic ------------------------------------
 log "Starting beachcam capture script (Mode: $MODE${FILTER:+ | Filter: \"$FILTER\"})..."
@@ -135,29 +160,48 @@ fi
 
 mkdir -p captures
 
-# ----------------------------- Extract & Process -------------------
+# ----------------------------- Extract streams -------------------
 log "Extracting Beachcam streams${FILTER:+ (filtered by \"$FILTER\")}..."
 
-# Optimized pipeline:
-# 1. Parse M3U
-# 2. Apply optional filter (early)
-# 3. Run process_stream in parallel
-grep -A1 'group-title="Beachcam"' "$PLAYLIST" | \
-awk '
-    /^#EXTINF/ { metadata = $0; next }
-    /^http/ && metadata != "" {
-        gsub(/"/, "\\\"", metadata)
-        print metadata "|" $0
-        metadata = ""
+mapfile -t STREAM_LINES < <(
+    grep -A1 'group-title="Beachcam"' "$PLAYLIST" | \
+    awk '
+        /^#EXTINF/ { metadata = $0; next }
+        /^http/ && metadata != "" {
+            gsub(/"/, "\\\"", metadata)
+            print metadata "|" $0
+            metadata = ""
+        }
+    ' | \
+    {
+        if [[ -n "$FILTER" ]]; then
+            grep -i "$FILTER"
+        else
+            cat
+        fi
     }
-' | \
-{
-    if [[ -n "$FILTER" ]]; then
-        grep -i "$FILTER"
-    else
-        cat
-    fi
-} | \
-xargs -I {} -P "$MAX_PARALLEL" -r bash -c 'process_stream "$1"' _ {}
+)
+
+TOTAL=${#STREAM_LINES[@]}
+
+if [[ $TOTAL -eq 0 ]]; then
+    log "No beachcams found${FILTER:+ matching filter \"$FILTER\"}."
+    exit 0
+fi
+
+log "Found $TOTAL beachcam(s) to process. Starting parallel capture..."
+
+# Progress tracking
+PROGRESS_FILE=$(mktemp /tmp/beachcam_progress_$$.XXXXXX)
+echo 0 > "$PROGRESS_FILE"
+trap 'rm -f "$PROGRESS_FILE" 2>/dev/null || true' EXIT
+
+# Process in parallel with live progress bar
+printf '%s\n' "${STREAM_LINES[@]}" | \
+xargs -I {} -P "$MAX_PARALLEL" -r bash -c 'process_stream "$1" "$2" "$3"' _ {} "$PROGRESS_FILE" "$TOTAL"
+
+# Final progress (100%)
+show_progress "$TOTAL" "$TOTAL"
+echo -e "\n"
 
 log "All beachcam processing completed."
