@@ -112,7 +112,7 @@ process_stream() {
     )
 
     if [[ "$MODE" == "video" ]]; then
-        local output_file="captures/${TIMESTAMP}/${prefix}-${TIMESTAMP}.mp4"
+        local output_file="captures/$(date '+%Y-%m-%d')/${prefix}-${TIMESTAMP}.mp4"
         echo "→ Capturing ${VIDEO_SECONDS}s video → $output_file"
 
         if ffmpeg -nostdin -y "${HLS_OPTS[@]}" \
@@ -134,7 +134,7 @@ process_stream() {
 
     else
         # Frame mode
-        local output_pattern="captures/${TIMESTAMP}/${prefix}-${TIMESTAMP}_%03d.jpg"
+        local output_pattern="captures/$(date '+%Y-%m-%d')/${prefix}-${TIMESTAMP}_%03d.jpg"
         echo "→ Capturing ${FRAME_COUNT} frames"
 
         if ffmpeg -nostdin -y "${HLS_OPTS[@]}" \
@@ -185,7 +185,7 @@ fi
 
 [[ -s "$PLAYLIST" ]] || error "Playlist file is empty or missing: $PLAYLIST"
 
-mkdir -p captures
+mkdir -p captures/"$(date '+%Y-%m-%d')"
 
 # Extract streams
 mapfile -t STREAM_LINES < <(
