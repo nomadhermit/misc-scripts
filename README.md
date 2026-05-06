@@ -10,5 +10,7 @@ Options:
   -f <text>      Filter beachcams by name (case-insensitive)
   -h             Show this help
 ```
+note: usefule for remove viewing of captured frames/vids if script run on headless system - https://github.com/filebrowser/filebrowser
+
 
 
