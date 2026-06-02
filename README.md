@@ -12,10 +12,10 @@ Options:
 ```
 Examples use cases:
 ```
-# run through list of beachcame saving one frame, wait 15 minutes and repeat. do this 6 times.
+# run through list of beachcams saving one frame from each, wait 15 minutes and repeat. do this 6 times.
 for i in {1..6}; do ./beachcam-capturev2.sh -i 1; sleep 900; done
 
-# wait two hours then run through list of brachcams saving one frame for each, wait 10 minutes and repeat (8 times)
+# wait two hours then run through list of beachcams saving one frame from each, wait 10 minutes and repeat (8 times)
 sleep 2h; for i in {1..8}; do ./beachcam-capturev2.sh -i 1; sleep 300; done
 
 # capture 30 seconds of video from any beachcam in list with name containing "capari" 
