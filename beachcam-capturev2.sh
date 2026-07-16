@@ -139,8 +139,10 @@ process_stream() {
 
         if ffmpeg -nostdin -y "${HLS_OPTS[@]}" \
                   -i "$stream_url" \
+                  -ss 00:00:01.50 \
                   -frames:v "$FRAME_COUNT" \
                   -vf "fps=${FPS}" \
+                  -q:v 2 \
                   -loglevel error \
                   "$output_pattern" 2>/dev/null; then
 
