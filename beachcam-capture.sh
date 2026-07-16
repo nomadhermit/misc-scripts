@@ -54,13 +54,13 @@ awk '
     }
     /^http/ && metadata != "" {
         gsub(/"/, "\\\"", metadata)
-        print metadata "|" $0
+        print metadata "~" $0
         metadata = ""
     }
 ' | \
 xargs -I {} -P "$MAX_PARALLEL" -r bash -c '
     line="{}"
-    IFS="|" read -r metadata stream_url <<< "$line"
+    IFS="~" read -r metadata stream_url <<< "$line"
 
     # Clean filename prefix
     prefix=$(echo "$metadata" | sed -E "s/.*,//; s/[^a-zA-Z0-9_-]/_/g; s/__+/_/g; s/^_|_$//g")
