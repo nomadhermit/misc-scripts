@@ -91,7 +91,7 @@ process_stream() {
     local total="$3"
 
     local metadata stream_url
-    IFS="|" read -r metadata stream_url <<< "$line"
+    IFS="~" read -r metadata stream_url <<< "$line"
 
     local prefix
     prefix=$(echo "$metadata" | sed -E 's/.*,//; s/[^a-zA-Z0-9_-]/_/g; s/__+/_/g; s/^_|_$//g')
@@ -196,7 +196,7 @@ mapfile -t STREAM_LINES < <(
         /^#EXTINF/ { metadata = $0; next }
         /^http/ && metadata != "" {
             gsub(/"/, "\\\"", metadata)
-            print metadata "|" $0
+            print metadata "~" $0
             metadata = ""
         }
     ' | \
