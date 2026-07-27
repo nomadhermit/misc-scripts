@@ -117,6 +117,7 @@ process_stream() {
 
         if ffmpeg -nostdin -y "${HLS_OPTS[@]}" \
                   -i "$stream_url" \
+                  -ss 00:00:01.50  \
                   -t "$VIDEO_SECONDS" \
                   -c copy \
                   -loglevel error \
