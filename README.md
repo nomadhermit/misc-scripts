@@ -21,7 +21,8 @@ sleep 2h; for i in {1..8}; do ./beachcam-capturev2.sh -i 1; sleep 300; done
 # capture 30 seconds of video from any beachcam in list with name containing "capari" 
 ./beachcam-capturev2.sh -v 30 -f capari
 ```
-note: usefule for remote viewing of captured frames/vids if script run on headless system - https://github.com/filebrowser/filebrowser
-
+note: usefule for remote viewing of captured frames/vids if script run on headless system - 
+ (now archived) https://github.com/filebrowser/filebrowser
+https://github.com/gtsteffaniak/filebrowser
 
 
