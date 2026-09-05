@@ -22,7 +22,9 @@ sleep 2h; for i in {1..8}; do ./beachcam-capturev2.sh -i 1; sleep 300; done
 ./beachcam-capturev2.sh -v 30 -f capari
 ```
 note: usefule for remote viewing of captured frames/vids if script run on headless system - 
- (now archived) https://github.com/filebrowser/filebrowser
-https://github.com/gtsteffaniak/filebrowser
+
+- https://github.com/filebrowser/filebrowser (now archived and no longer maintained)
+
+- https://github.com/gtsteffaniak/filebrowser
 
 
