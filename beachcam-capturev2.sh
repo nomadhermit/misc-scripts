@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # ----------------------------- check pre-reqs -------------------------------------
-if ! command --version ffmpeg &> /dev/null; then
+if ! command -version ffmpeg &> /dev/null; then
     echo "Error: ffmpeg is not installed or not in your PATH." >&2
     exit 1
 fi
