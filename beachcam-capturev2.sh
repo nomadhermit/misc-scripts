@@ -6,12 +6,12 @@
 set -euo pipefail
 
 # ----------------------------- check pre-reqs -------------------------------------
-if ! command -version ffmpeg &> /dev/null; then
+if ! ffmpeg -version  &> /dev/null; then
     echo "Error: ffmpeg is not installed or not in your PATH." >&2
     exit 1
 fi
 
-if ! command --version xargs &> /dev/null; then
+if ! xargs --version &> /dev/null; then
     echo "Error: xargs is not installed or not in your PATH." >&2
     exit 1
 fi
