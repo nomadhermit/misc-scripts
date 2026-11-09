@@ -18,6 +18,9 @@ for i in {1..6}; do ./beachcam-capturev2.sh -i 1; sleep 900; done
 # wait two hours then run through list of beachcams saving one frame from each, wait 10 minutes and repeat (8 times)
 sleep 2h; for i in {1..8}; do ./beachcam-capturev2.sh -i 1; sleep 300; done
 
+# execute script at specific time (use date first to see time and timezone system is using
+echo "bash ./beachcam-capturev2.sh -i 1" | at 09:00
+
 # capture 30 seconds of video from any beachcam in list with name containing "capari" 
 ./beachcam-capturev2.sh -v 30 -f capari
 ```
